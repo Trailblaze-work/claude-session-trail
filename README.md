@@ -131,6 +131,7 @@ git push origin --delete claude-sessions
 
 ## Related
 
+- [claude-replay](https://github.com/Trailblaze-work/claude-replay) — replay captured sessions in the browser
 - [claude-prompt-trail](https://github.com/Trailblaze-work/claude-prompt-trail) — captures processed prompt summaries as git notes per commit
 
 ## License
