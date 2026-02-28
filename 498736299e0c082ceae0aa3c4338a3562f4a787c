@@ -1,0 +1,113 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: ad9a35f4-091a-4a2a-94e5-4b3905d635a0
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T16:27:41Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [Request interrupted by user for tool use]
+
+**2.** Implement the following plan:
+
+# Backfill existing local sessions to the claude-sessions branch
+
+## Context
+
+Session-trail only captures sessions going forward. Users have existing session transcripts in `~/.claude/projects/` that they'd like to import retroactively. We need a backfill script + a slash command (`/session-trail:backfill`) to discover local transcripts for the current repo, deduplicate against what's already on the branch, and commit the missing ones.
+
+## How Claude Code stores transcripts locally
+
+- Path: `~/.claude/projects/<encoded-repo-path>/<session-uuid>.jsonl`
+- Encoded path: `/Users/gilles/Documents/foo` → `-Users-gilles-Documents-foo`
+- Subagent transcripts in `<uuid>/subagents/` subdirectories (exclude these)
+
+## Design
+
+### 1. New file: `hooks/backfill-sessions.sh` (~180 lines)
+
+Standalone script (not a hook) that imports existing transcripts. Same bash+inline-python pattern as capture-session.sh.
+
+**Bash section:**
+- Determine current repo path → encode → find `~/.claude/projects/<encoded>/`
+- Glob for `*.jsonl` (exclude `*/subagents/*`)
+- Parse flags: `--push` (push after import), `--force` (overwrite existing)
+
+**Python section (reuses same functions as capture-session.sh):**
+- Get existing session IDs from branch: `git ls-tree claude-sessions sessions/`
+- For each transcript:
+  - session_id = filename without `.jsonl`
+  - Skip if already on branch (unless `--force`)
+  - `process_transcript()` → `build_metadata()` → `commit_to_sessions_branch()`
+- Print summary: `Imported N sessions, skipped M already present`
+- Push if `--push`
+
+### 2. New file: `skills/backfill/SKILL.md`
+
+Plugin skill that registers `/session-trail:backfill` as a slash command:
+
+```yaml
+---
+name: backfill
+description: Import existing local Claude session transcripts to the claude-sessions git branch
+allowed-tools: Bash
+---
+
+Run the backfill script to import existing session transcripts for this repository:
+
+bash "${CLAUDE_PLUGIN_ROOT}/hooks/backfill-sessions.sh"
+
+Report the results to the user.
+```
+
+### 3. Edit `README.md`
+
+Add "Backfill existing sessions" section documenting both invocation methods:
+- `/session-trail:backfill` from within Claude
+- `bash .../hooks/backfill-sessions.sh` standalone
+
+### 4. Edit `test/run-tests.sh`
+
+Add backfill test section:
+- `test_backfill_imports_sessions` — discovers and imports mock transcripts
+- `test_backfill_skips_existing` — sessions already on branch are skipped
+- `test_backfill_force_overwrites` — `--force` reimports existing sessions
+- `test_backfill_push` — `--push` pushes after import
+- `test_backfill_no_transcripts` — exits cleanly when no transcripts found
+- `test_backfill_excludes_subagents` — subagent transcripts not imported
+
+## Files
+
+- **Create** `hooks/backfill-sessions.sh` (~180 lines)
+- **Create** `skills/backfill/SKILL.md`
+- **Edit** `README.md` — add backfill section
+- **Edit** `test/run-tests.sh` — add backfill tests
+
+## Verification
+
+1. `bash test/run-tests.sh` — all tests pass
+2. Manual: run backfill in a repo with existing sessions, verify `git log claude-sessions`
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/gilles/.[REDACTED_LONG_SECRET].jsonl
+
+**3.** [accept-edits] commit and push
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 41 user, 52 assistant |
+| Tokens in | 70 |
+| Tokens out | 11,142 |
+| Cache read | 2,394,053 |
+| Cache write | 159,077 |
+
+### Tools
+
+TaskUpdate(10) Bash(8) Read(7) Edit(5) TaskCreate(5) Write(2) Glob(1)
