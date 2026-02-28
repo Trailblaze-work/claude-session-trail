@@ -1,0 +1,287 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T15:32:01Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+
+### Prompts
+
+**1.** [Request interrupted by user for tool use]
+
+**2.** Implement the following plan:
+
+# claude-session-trail — new project
+
+## Context
+
+prompt-trail captures a processed markdown summary per commit. This is useful for `git log` but loses the full session context — assistant responses, tool invocations, conversation flow, timing. A new project, **claude-session-trail**, stores filtered session transcripts on a dedicated git branch (`claude-sessions`) to enable building a session replay player later. The session data doesn't need a 1:1 relationship with commits — we just capture everything.
+
+**New repo**: `claude-session-trail` under the Trailblaze org. Separate Claude Code plugin with its own `plugin.json`, hooks, and tests. Reuses secret redaction patterns from prompt-trail but is otherwise standalone.
+
+## Research findings
+
+### Size after filtering + compression (measured on real transcripts)
+| Raw transcript | After filter + gzip |
+|----------------|-------------------|
+| 300-700KB (typical) | 5-15KB |
+| 1.6MB | 30KB |
+| 60MB | 305KB |
+| 91MB (worst case) | 274KB |
+
+The 99%+ reduction comes from dropping `progress` records (62% of lines), `toolUseResult` duplicate fields, thinking blocks, and base64 images, then gzip compressing.
+
+### Hook events available
+- **`Stop`** — fires when Claude finishes responding (not on user interrupt). Good heartbeat.
+- **`SessionEnd`** — fires when session terminates. Good for final push.
+- **`PostToolUse`** — fires after every tool call. Too frequent for this.
+
+### Git plumbing for branchless commits
+Using `GIT_INDEX_FILE` + `git hash-object` + `git read-tree` + `git write-tree` + `git commit-tree` + `git update-ref`, we can commit to a separate branch without touching the working tree, index, or current branch. No stashing, no checkout, works even during merges/rebases.
+
+## Design
+
+### Branch structure
+```
+refs/heads/claude-sessions
+└── sessions/
+    ├── <session-id>.jsonl.gz      # filtered + compressed transcript
+    ├── <session-id>.meta.json     # lightweight metadata sidecar
+    ├── <session-id>.jsonl.gz
+    └── <session-id>.meta.json
+```
+
+The `.meta.json` sidecar enables cheap indexing without decompressing transcripts:
+```json
+{
+  "session_id": "003b94b5-...",
+  "slug": "starry-hugging-otter",
+  "started": "2026-02-27T17:54:24Z",
+  "last_updated": "2026-02-27T21:57:00Z",
+  "models": ["claude-opus-4-6"],
+  "client_version": "2.1.62",
+  "git_branch": "main",
+  "user_turns": 28,
+  "assistant_turns": 32,
+  "commits": ["a1b2c3d", "e4f5g6h"],
+  "tools_used": {"Bash": 15, "Edit": 8, "Read": 12},
+  "compressed_size": 30124
+}
+```
+
+### Processing: secret redaction only
+
+Store the **raw transcript as-is** with only secret redaction applied. No filtering, no stripping of record types or fields. This preserves maximum replay fidelity — progress events, images, thinking blocks, tool data, everything.
+
+- Walk each line of the JSONL, apply `SECRET_PATTERNS` regex replacements to the raw JSON string
+- Gzip compress
+- Typical session: ~300KB gzipped, worst case ~2MB gzipped
+- No size concerns with the branch approach
+
+### Trigger strategy
+
+| Event | Action | Why |
+|-------|--------|-----|
+| `Stop` (every Claude turn) | Filter transcript → commit to `claude-sessions` branch locally | Frequent enough for durability; if session crashes, data is safe |
+| `SessionEnd` | Same commit + push to origin | One push per session, not per turn |
+
+**Early exit**: compare transcript mtime against `.git/claude-sessions-last-<session-id>` to skip no-op commits.
+
+**Full transcript each time** (not deltas): git's packfile compression handles deduplication automatically. Each commit overwrites the same `sessions/<id>.jsonl.gz` file; git stores the delta internally.
+
+### Git plumbing commit mechanism
+
+```python
+# 1. Temporary index (doesn't touch main index)
+os.environ["GIT_INDEX_FILE"] = f"{git_dir}/claude-sessions-index"
+
+# 2. Read existing branch tree (if any)
+parent = git_rev_parse("refs/heads/claude-sessions")  # or None
+if parent:
+    git_read_tree(parent)
+
+# 3. Add filtered+gzipped session as blob
+blob = git_hash_object(gzipped_jsonl)
+git_update_index(f"sessions/{session_id}.jsonl.gz", blob)
+
+# 4. Add metadata sidecar
+meta_blob = git_hash_object(meta_json)
+git_update_index(f"sessions/{session_id}.meta.json", meta_blob)
+
+# 5. Create tree → commit → update ref (CAS for concurrency)
+tree = git_write_tree()
+commit = git_commit_tree(tree, parent, f"Update session {session_id}")
+git_update_ref("refs/heads/claude-sessions", commit, parent)  # CAS retry on race
+
+# 6. Cleanup
+del os.environ["GIT_INDEX_FILE"]
+rm(f"{git_dir}/claude-sessions-index")
+```
+
+Concurrency: `git update-ref` with expected old value provides compare-and-swap. On race (two sessions updating simultaneously), retry with fresh parent. Different sessions write different files so trees always merge cleanly.
+
+### What a replay player gets
+
+From the stored transcript (everything — raw JSONL with only secrets redacted):
+- Exact user prompts with timing
+- Full assistant text responses and thinking blocks
+- Every tool invocation with complete inputs (commands, files, edits)
+- Progress events for timing reconstruction
+- Base64 images (user screenshots)
+- Model, token usage per turn
+- Conversation threading via uuid/parentUuid
+- File history snapshots
+
+From git (available at replay time):
+- `git show <commit>` for actual diffs at each commit point
+- Full file state reconstruction
+
+## Project structure (new repo)
+
+```
+claude-session-trail/
+├── .claude-plugin/
+│   └── plugin.json              # plugin identity + metadata
+├── .claude/
+│   └── settings.json            # enabledPlugins: {".": true}
+├── hooks/
+│   ├── hooks.json               # Stop + SessionEnd + SessionStart entries
+│   ├── capture-session.sh       # main hook: filter, compress, commit to branch
+│   └── setup-session-branch.sh  # SessionStart: configure fetch refspec
+├── test/
+│   └── run-tests.sh             # test suite
+├── README.md
+└── LICENSE
+```
+
+## Changes
+
+### 1. `hooks/capture-session.sh` — main hook (~200 lines)
+
+Shell script with inline Python (same pattern as prompt-trail's `capture-prompts.sh`).
+
+**Bash section**:
+- Read hook JSON from stdin, extract `transcript_path`, `session_id`
+- Fast exit if no transcript or session
+- Check `--push` flag (set by `SessionEnd` hook entry)
+- Early exit if transcript mtime unchanged since last commit (compare against `.git/session-trail-last-<session_id>`)
+
+**Python section**:
+- `SECRET_PATTERNS` + `redact_secrets(text)` → same patterns as prompt-trail (self-contained copy)
+- `process_transcript(path)` → reads raw JSONL, applies secret redaction line-by-line, gzip compresses, returns bytes
+- `build_metadata(path, session_id)` → extracts session metadata for `.meta.json` by scanning records (slug, models, commits, tools, timestamps, turn counts)
+- `commit_to_sessions_branch(session_id, gzipped_bytes, meta_json)` → git plumbing with temp index: `read-tree` → `hash-object` → `update-index` → `write-tree` → `commit-tree` → `update-ref` (CAS retry for concurrency)
+- `push_sessions_branch()` → `git push origin refs/heads/claude-sessions` (best-effort, fetch+retry on non-fast-forward)
+
+### 2. `hooks/hooks.json`
+
+```json
+{
+  "hooks": {
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/capture-session.sh\"",
+        "timeout": 60
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "command",
+        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/capture-session.sh\" --push",
+        "timeout": 30
+      }]
+    }],
+    "SessionStart": [{
+      "matcher": "startup",
+      "hooks": [{
+        "type": "command",
+        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/setup-session-branch.sh\"",
+        "timeout": 5
+      }]
+    }]
+  }
+}
+```
+
+### 3. `hooks/setup-session-branch.sh` — SessionStart hook (~15 lines)
+
+Add fetch refspec for `refs/heads/claude-sessions` so team members can pull session data. Idempotent (skip if already set). Do NOT add to `notes.displayRef`.
+
+### 4. `.claude-plugin/plugin.json`
+
+```json
+{
+  "name": "session-trail",
+  "publisher": "trailblaze",
+  "version": "0.1.0",
+  "description": "Captures Claude Code session transcripts on a dedicated git branch for replay"
+}
+```
+
+### 5. `test/run-tests.sh` — test suite (~200 lines)
+
+Reuse the test helpers pattern from prompt-trail (make_test_repo, cleanup_test_repo, pass/fail/section).
+
+**"secret redaction"**:
+- `test_redacts_secrets_in_transcript` — secrets replaced with [REDACTED] markers
+- `test_preserves_normal_content` — non-secret text unchanged after redaction
+- `test_transcript_is_valid_gzipped_jsonl` — stored file gunzips to valid JSONL
+
+**"git plumbing"**:
+- `test_commit_creates_branch` — `claude-sessions` branch created with session files
+- `test_commit_no_worktree_disruption` — working tree, index, and current branch unchanged
+- `test_commit_idempotent` — re-running with unchanged transcript creates no new commit
+- `test_commit_updates_existing_session` — second run with longer transcript updates the file
+- `test_concurrent_sessions` — two different session IDs can commit without conflict
+
+**"metadata"**:
+- `test_meta_has_session_fields` — `.meta.json` contains required fields
+- `test_meta_lists_commits` — `commits` array populated from transcript
+
+**"integration"**:
+- `test_push_on_session_end` — `--push` flag triggers push
+- `test_setup_configures_fetch` — fetch refspec added for `claude-sessions`
+
+### 6. `README.md`
+
+Cover: what it does, install (`claude plugin install`), what gets captured vs stripped, how to retrieve session data, privacy/security notes, how to browse sessions, uninstall, limitations.
+
+## Files to create
+
+- `hooks/capture-session.sh` (~250 lines)
+- `hooks/hooks.json`
+- `hooks/setup-session-branch.sh` (~15 lines)
+- `.claude-plugin/plugin.json`
+- `.claude/settings.json`
+- `test/run-tests.sh` (~200 lines)
+- `README.md`
+- `LICENSE` (MIT)
+
+## Verification
+
+1. `bash test/run-tests.sh` — all tests pass including new session data tests
+2. Existing tests still pass (no regressions in commit/amend/rebase/squash flows)
+3. Manual: after a Claude session, `git log claude-sessions --oneline` shows session commits
+4. Manual: `git show claude-sessions:sessions/<id>.meta.json` shows metadata
+5. Manual: `git show claude-sessions:sessions/<id>.jsonl.gz | gunzip | head` shows filtered JSONL
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/gilles/.[REDACTED_LONG_SECRET].jsonl
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 79 user, 104 assistant |
+| Tokens in | 770 |
+| Tokens out | 26,906 |
+| Cache read | 5,402,385 |
+| Cache write | 106,730 |
+
+### Tools
+
+Bash(22) TaskUpdate(20) Read(11) TaskCreate(10) Write(9) Edit(3) Glob(1) Task(1)
