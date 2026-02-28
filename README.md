@@ -2,8 +2,6 @@
 
 A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that captures full session transcripts on a dedicated git branch (`claude-sessions`) for replay and analysis.
 
-Part of [Trailblaze](https://trailblaze.work) — tools for AI-assisted development visibility.
-
 ## What it does
 
 Every time Claude finishes responding, `session-trail` snapshots the full session transcript — with secrets redacted — and commits it to a `claude-sessions` branch using git plumbing. No working tree disruption, no index conflicts, works during rebases and merges.
