@@ -1,0 +1,29 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T16:02:59Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] It needs to be specified a lot sooner, because the whole point or recording them is to be able to display them
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 4 user, 3 assistant |
+| Tokens in | 5 |
+| Tokens out | 308 |
+| Cache read | 304,795 |
+| Cache write | 599 |
+
+### Tools
+
+Edit(1) Read(1)
