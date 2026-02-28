@@ -1,0 +1,31 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T16:07:12Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] how good is the test coverage right now?
+
+**2.** [accept-edits] Yes, and increase test coverage all around. try to avoid touching any functional code, only adding tests
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 10 user, 18 assistant |
+| Tokens in | 26 |
+| Tokens out | 7,851 |
+| Cache read | 2,075,753 |
+| Cache write | 58,032 |
+
+### Tools
+
+Edit(4) Read(2) Bash(1)
