@@ -6,7 +6,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that capt
 
 Every time Claude finishes responding, `session-trail` snapshots the full session transcript — with secrets redacted — and commits it to a `claude-sessions` branch using git plumbing. No working tree disruption, no index conflicts, works during rebases and merges.
 
-When the session ends, it pushes the branch to origin so team members can access session data.
+When the session ends, it pushes the branch to origin so team members can access session data. Replay sessions in the browser with [claude-replay](https://github.com/Trailblaze-work/claude-replay).
 
 ## Install
 
