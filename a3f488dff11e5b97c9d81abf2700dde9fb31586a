@@ -1,0 +1,29 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T16:03:17Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] Replay sessions in the browser -> Replay sessions in the command line
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 3 user, 2 assistant |
+| Tokens in | 4 |
+| Tokens out | 159 |
+| Cache read | 204,799 |
+| Cache write | 252 |
+
+### Tools
+
+Edit(1)
