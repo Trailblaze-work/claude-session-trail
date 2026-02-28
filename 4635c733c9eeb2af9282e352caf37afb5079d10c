@@ -1,0 +1,31 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T15:35:54Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] is this project supposed to have E2E tests? if so, does it just need a secret configured?
+
+**2.** [accept-edits] yes
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 18 user, 27 assistant |
+| Tokens in | 37 |
+| Tokens out | 5,554 |
+| Cache read | 2,289,581 |
+| Cache write | 22,497 |
+
+### Tools
+
+Read(5) Edit(4) Bash(3) Write(2) Grep(1)
