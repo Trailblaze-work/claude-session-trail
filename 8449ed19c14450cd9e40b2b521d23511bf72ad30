@@ -1,0 +1,29 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T15:33:05Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] Part of Trailblaze — tools for AI-assisted development visibility. -> remove that, we're already credited in the footer
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 6 user, 6 assistant |
+| Tokens in | 8 |
+| Tokens out | 794 |
+| Cache read | 458,872 |
+| Cache write | 1,903 |
+
+### Tools
+
+Bash(2) Edit(1) Read(1)
