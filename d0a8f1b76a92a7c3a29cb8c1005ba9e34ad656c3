@@ -1,0 +1,37 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T16:01:42Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] (base) gilles@mac-1 claude-prompt-trail % claude plugin install session-trail@trailblaze
+Installing plugin "session-trail@trailblaze"...
+✘ Failed to install plugin "session-trail@trailblaze": Plugin "session-trail" not found in marketplace "trailblaze" -> do I need to make claude fetch updates form the marketplace?
+
+**2.** [accept-edits] I've installed the plugin and started a new Claude session on /Users/gilles/Documents/personal/etincelle can you check if it's working?
+
+**3.** [accept-edits] when will it be pushed? or is it never pushed to the remote by the tool?
+
+**4.** [accept-edits] make the README link to our replay project that allows the user to replay those recordings: https://github.com/Trailblaze-work/claude-replay (it's in the same org)
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 14 user, 15 assistant |
+| Tokens in | 25 |
+| Tokens out | 1,746 |
+| Cache read | 1,487,914 |
+| Cache write | 2,556 |
+
+### Tools
+
+Bash(7) Edit(1) Read(1)
