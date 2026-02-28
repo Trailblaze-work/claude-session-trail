@@ -10,6 +10,7 @@ HOOKS_DIR="$PROJECT_DIR/hooks"
 
 PASSED=0
 FAILED=0
+SKIPPED=0
 
 # --- Helpers ---
 
@@ -21,6 +22,11 @@ pass() {
 fail() {
     printf "  \033[31mFAIL\033[0m %s: %s\n" "$1" "$2"
     FAILED=$((FAILED + 1))
+}
+
+skip() {
+    printf "  \033[33mSKIP\033[0m %s: %s\n" "$1" "$2"
+    SKIPPED=$((SKIPPED + 1))
 }
 
 section() {
@@ -658,6 +664,179 @@ test_scripts_executable() {
 
 
 # ============================================================
+# E2E tests (optional, require ANTHROPIC_API_KEY + claude CLI)
+# ============================================================
+
+# Guard: skip if claude CLI is missing.
+require_claude() {
+    if ! command -v claude >/dev/null 2>&1; then
+        skip "$1" "claude CLI not installed"
+        return 1
+    fi
+    return 0
+}
+
+# Guard: skip if prerequisites for API-calling E2E tests are missing.
+require_e2e() {
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+        skip "$1" "ANTHROPIC_API_KEY not set"
+        return 1
+    fi
+    require_claude "$1"
+}
+
+# Helper: run a simple Claude session that triggers the Stop hook.
+# Usage: claude_session [extra-flags...]
+# Returns 0 on success. Sets CLAUDE_OUTPUT.
+# Retries once on failure to handle flaky LLM responses.
+claude_session() {
+    local attempt
+    for attempt in 1 2; do
+        CLAUDE_OUTPUT=$(claude -p \
+            "Say hello and nothing else." \
+            --permission-mode acceptEdits \
+            --allowedTools 'Bash(echo *)' \
+            "$@" \
+            2>&1) || true
+
+        if [[ -n "$CLAUDE_OUTPUT" ]]; then
+            return 0
+        fi
+        [[ $attempt -eq 1 ]] && echo "  (retry claude_session after attempt $attempt)" >&2
+    done
+    return 1
+}
+
+test_e2e_plugin_validate() {
+    require_claude "E2E plugin validate" || return 0
+
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+    git add .claude-plugin/ hooks/ .claude/
+    git commit -q -m "add plugin"
+
+    local output
+    output=$(claude plugin validate . 2>&1)
+    local rc=$?
+    if [[ $rc -eq 0 && "$output" == *"Validation passed"* ]]; then
+        pass "E2E: plugin validate passes"
+    else
+        fail "E2E: plugin validate passes" "rc=$rc output: ${output:0:200}"
+    fi
+}
+
+test_e2e_session_captured() {
+    require_e2e "E2E session captured" || return 0
+
+    make_test_repo
+    trap cleanup_test_repo RETURN
+
+    if claude_session --plugin-dir "$PROJECT_DIR"; then
+        # The Stop hook should have committed to claude-sessions branch
+        if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+            # Check that session files exist (any session ID)
+            local files
+            files=$(git ls-tree claude-sessions sessions/ 2>/dev/null || echo "")
+            if echo "$files" | grep -q '\.jsonl\.gz' && echo "$files" | grep -q '\.meta\.json'; then
+                pass "E2E: session transcript captured on claude-sessions branch"
+            else
+                fail "E2E: session transcript captured on claude-sessions branch" \
+                    "branch exists but files missing. tree: ${files:0:200}"
+            fi
+        else
+            fail "E2E: session transcript captured on claude-sessions branch" \
+                "claude-sessions branch not created. Output: ${CLAUDE_OUTPUT:0:200}"
+        fi
+    else
+        fail "E2E: session transcript captured on claude-sessions branch" \
+            "claude session failed. Output: ${CLAUDE_OUTPUT:0:200}"
+    fi
+}
+
+test_e2e_transcript_decompresses() {
+    require_e2e "E2E transcript decompresses" || return 0
+
+    make_test_repo
+    trap cleanup_test_repo RETURN
+
+    if claude_session --plugin-dir "$PROJECT_DIR"; then
+        if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+            # Find the .jsonl.gz file
+            local gz_path
+            gz_path=$(git ls-tree --name-only claude-sessions sessions/ 2>/dev/null | grep '\.jsonl\.gz' | head -1)
+            if [[ -n "$gz_path" ]]; then
+                local content
+                content=$(git show "claude-sessions:$gz_path" | gunzip 2>/dev/null || echo "")
+                if [[ -n "$content" ]] && echo "$content" | head -1 | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+                    pass "E2E: stored transcript decompresses to valid JSONL"
+                else
+                    fail "E2E: stored transcript decompresses to valid JSONL" "gunzip or JSON parse failed"
+                fi
+            else
+                fail "E2E: stored transcript decompresses to valid JSONL" "no .jsonl.gz file found"
+            fi
+        else
+            skip "E2E transcript decompresses" "claude-sessions branch not created"
+        fi
+    else
+        fail "E2E: stored transcript decompresses to valid JSONL" \
+            "claude session failed. Output: ${CLAUDE_OUTPUT:0:200}"
+    fi
+}
+
+test_e2e_meta_has_fields() {
+    require_e2e "E2E meta has fields" || return 0
+
+    make_test_repo
+    trap cleanup_test_repo RETURN
+
+    if claude_session --plugin-dir "$PROJECT_DIR"; then
+        if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+            local meta_path
+            meta_path=$(git ls-tree --name-only claude-sessions sessions/ 2>/dev/null | grep '\.meta\.json' | head -1)
+            if [[ -n "$meta_path" ]]; then
+                local meta
+                meta=$(git show "claude-sessions:$meta_path" 2>/dev/null || echo "")
+                if python3 -c "
+import json, sys
+d = json.loads('''$meta''') if len(sys.argv) < 2 else json.loads(sys.argv[1])
+assert d.get('session_id'), 'missing session_id'
+assert d.get('user_turns', 0) > 0, 'no user turns'
+assert d.get('assistant_turns', 0) > 0, 'no assistant turns'
+assert d.get('compressed_size', 0) > 0, 'no compressed_size'
+" 2>/dev/null; then
+                    pass "E2E: meta.json has expected fields from real session"
+                else
+                    # Try passing via stdin to avoid quoting issues
+                    if echo "$meta" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d.get('session_id'), 'missing session_id'
+assert d.get('user_turns', 0) > 0, 'no user turns'
+assert d.get('assistant_turns', 0) > 0, 'no assistant turns'
+assert d.get('compressed_size', 0) > 0, 'no compressed_size'
+" 2>/dev/null; then
+                        pass "E2E: meta.json has expected fields from real session"
+                    else
+                        fail "E2E: meta.json has expected fields from real session" \
+                            "field validation failed. meta: ${meta:0:300}"
+                    fi
+                fi
+            else
+                fail "E2E: meta.json has expected fields from real session" "no .meta.json file found"
+            fi
+        else
+            skip "E2E meta has fields" "claude-sessions branch not created"
+        fi
+    else
+        fail "E2E: meta.json has expected fields from real session" \
+            "claude session failed. Output: ${CLAUDE_OUTPUT:0:200}"
+    fi
+}
+
+
+# ============================================================
 # Run all tests
 # ============================================================
 
@@ -690,12 +869,13 @@ test_plugin_json_valid
 test_hooks_json_valid
 test_scripts_executable
 
+section "E2E (optional)"
+test_e2e_plugin_validate
+test_e2e_session_captured
+test_e2e_transcript_decompresses
+test_e2e_meta_has_fields
+
 # --- Summary ---
-printf "\n"
-printf "  \033[32m%d passed\033[0m" "$PASSED"
-if [[ "$FAILED" -gt 0 ]]; then
-    printf ", \033[31m%d failed\033[0m" "$FAILED"
-fi
-printf "\n\n"
+printf "\n\033[1mResults: %d passed, %d failed, %d skipped\033[0m\n\n" "$PASSED" "$FAILED" "$SKIPPED"
 
 exit "$FAILED"
