@@ -1,0 +1,10 @@
+{
+  "name": "session-trail",
+  "description": "Captures Claude Code session transcripts on a dedicated git branch for replay",
+  "version": "0.1.0",
+  "author": { "name": "Trailblaze" },
+  "homepage": "https://trailblaze.work",
+  "repository": "https://github.com/Trailblaze-work/claude-session-trail",
+  "license": "MIT",
+  "keywords": ["git", "sessions", "transcripts", "replay"]
+}
