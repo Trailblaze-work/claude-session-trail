@@ -1,0 +1,31 @@
+## Claude Code Prompts
+
+<!-- format:v2 -->
+
+**Session**: cd415dc3-6c6e-41f1-9af0-1bf83642eb83
+**Slug**: buzzing-imagining-karp
+**Captured**: 2026-02-28T15:39:46Z
+**Branch**: main
+**Model**: claude-opus-4-6
+**Client**: 2.1.62
+**Permission**: accept-edits
+
+### Prompts
+
+**1.** [accept-edits] (base) gilles@mac-1 claude-prompt-trail % claude plugin install github:Trailblaze-work/claude-session-trail
+Installing plugin "github:Trailblaze-work/claude-session-trail"...
+✘ Failed to install plugin "github:Trailblaze-work/claude-session-trail": Plugin "github:Trailblaze-work/claude-session-trail" not found in any configured marketplace -> you need to add this new plugin to our marketplace repo
+
+### Stats
+
+| Metric | Value |
+|--------|-------|
+| Turns | 15 user, 17 assistant |
+| Tokens in | 19 |
+| Tokens out | 1,855 |
+| Cache read | 1,616,690 |
+| Cache write | 6,863 |
+
+### Tools
+
+Bash(6) Read(4) Edit(3)
