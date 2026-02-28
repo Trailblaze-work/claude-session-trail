@@ -100,6 +100,31 @@ Commits use git plumbing (`hash-object`, `read-tree`, `write-tree`, `commit-tree
 
 Git's packfile compression handles deduplication automatically — each commit overwrites the same session file, and git stores only the delta internally.
 
+## Backfill existing sessions
+
+Session-trail only captures sessions going forward. To import existing local transcripts retroactively:
+
+**From within Claude Code:**
+
+```
+/session-trail:backfill
+```
+
+**Standalone:**
+
+```bash
+# Import missing sessions
+bash path/to/hooks/backfill-sessions.sh
+
+# Import and push to origin
+bash path/to/hooks/backfill-sessions.sh --push
+
+# Overwrite sessions already on the branch
+bash path/to/hooks/backfill-sessions.sh --force
+```
+
+The script discovers transcripts in `~/.claude/projects/<encoded-repo-path>/`, skips sessions already on the `claude-sessions` branch, and commits the rest with secret redaction and gzip compression.
+
 ## Privacy & security
 
 - Secrets are redacted using pattern matching before storage

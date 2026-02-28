@@ -56,6 +56,7 @@ install_plugin() {
     cp "$PROJECT_DIR/.claude-plugin/plugin.json" .claude-plugin/
     cp "$HOOKS_DIR/capture-session.sh" hooks/
     cp "$HOOKS_DIR/setup-session-branch.sh" hooks/
+    cp "$HOOKS_DIR/backfill-sessions.sh" hooks/
     cp "$HOOKS_DIR/hooks.json" hooks/
     chmod +x hooks/*.sh
     mkdir -p .claude
@@ -1137,7 +1138,7 @@ assert 'SessionStart' in d['hooks']
 
 test_scripts_executable() {
     local all_exec=true
-    for script in "$HOOKS_DIR/capture-session.sh" "$HOOKS_DIR/setup-session-branch.sh"; do
+    for script in "$HOOKS_DIR/capture-session.sh" "$HOOKS_DIR/setup-session-branch.sh" "$HOOKS_DIR/backfill-sessions.sh"; do
         if [[ ! -x "$script" ]]; then
             all_exec=false
             fail "hook scripts are executable" "$script is not executable"
@@ -1145,6 +1146,202 @@ test_scripts_executable() {
     done
     if $all_exec; then
         pass "hook scripts are executable"
+    fi
+}
+
+
+# ============================================================
+# Backfill tests
+# ============================================================
+
+# Helper: create a fake ~/.claude/projects dir with transcripts for a test repo.
+# Sets FAKE_CLAUDE_HOME to a temp dir that should be used as HOME.
+# Usage: setup_backfill_transcripts <session_ids...>
+setup_backfill_transcripts() {
+    FAKE_CLAUDE_HOME=$(mktemp -d "${TMPDIR:-/tmp}/cst-home.XXXXXX")
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel)
+    local encoded
+    encoded=$(printf '%s' "$repo_root" | sed 's|/|-|g')
+    local projects_dir="${FAKE_CLAUDE_HOME}/.claude/projects/${encoded}"
+    mkdir -p "$projects_dir"
+
+    for sid in "$@"; do
+        make_transcript "${projects_dir}/${sid}.jsonl" \
+            "user:Hello from ${sid}" \
+            "assistant:Hi back"
+    done
+
+    # Return the projects dir path for verification
+    BACKFILL_PROJECTS_DIR="$projects_dir"
+}
+
+cleanup_backfill_home() {
+    if [[ -n "${FAKE_CLAUDE_HOME:-}" && -d "$FAKE_CLAUDE_HOME" ]]; then
+        rm -rf "$FAKE_CLAUDE_HOME"
+    fi
+}
+
+test_backfill_imports_sessions() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    setup_backfill_transcripts "session-aaa" "session-bbb" "session-ccc"
+
+    # Run backfill with faked HOME
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh
+
+    # All three sessions should be on the branch
+    local count=0
+    for sid in session-aaa session-bbb session-ccc; do
+        if git show "claude-sessions:sessions/${sid}.jsonl.gz" >/dev/null 2>&1 && \
+           git show "claude-sessions:sessions/${sid}.meta.json" >/dev/null 2>&1; then
+            count=$((count + 1))
+        fi
+    done
+
+    if [[ "$count" -eq 3 ]]; then
+        pass "backfill imports all discovered sessions"
+    else
+        fail "backfill imports all discovered sessions" "only $count of 3 imported"
+    fi
+}
+
+test_backfill_skips_existing() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # First, commit one session via capture-session.sh
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Already here" \
+        "assistant:Yes"
+    make_hook_input "$transcript" "existing-session" | bash hooks/capture-session.sh
+
+    local commits_before
+    commits_before=$(git log claude-sessions --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+    # Set up backfill with same session ID + a new one
+    setup_backfill_transcripts "existing-session" "new-session"
+
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh
+
+    local commits_after
+    commits_after=$(git log claude-sessions --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+    # Should have added exactly 1 new commit (for new-session only)
+    local new_commits=$((commits_after - commits_before))
+    if [[ "$new_commits" -eq 1 ]] && \
+       git show "claude-sessions:sessions/new-session.jsonl.gz" >/dev/null 2>&1; then
+        pass "backfill skips sessions already on branch"
+    else
+        fail "backfill skips sessions already on branch" \
+            "expected 1 new commit, got $new_commits"
+    fi
+}
+
+test_backfill_force_overwrites() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # First, commit a session via capture-session.sh
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Original content" \
+        "assistant:Original"
+    make_hook_input "$transcript" "force-session" | bash hooks/capture-session.sh
+
+    local commits_before
+    commits_before=$(git log claude-sessions --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+    # Set up backfill with same session ID (different content)
+    setup_backfill_transcripts "force-session"
+
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh --force
+
+    local commits_after
+    commits_after=$(git log claude-sessions --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+    if [[ "$commits_after" -gt "$commits_before" ]]; then
+        pass "--force reimports existing sessions"
+    else
+        fail "--force reimports existing sessions" \
+            "commits before=$commits_before, after=$commits_after"
+    fi
+}
+
+test_backfill_push() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # Create a bare remote
+    local remote_dir
+    remote_dir=$(mktemp -d "${TMPDIR:-/tmp}/cst-remote.XXXXXX")
+    git init -q --bare "$remote_dir"
+    git remote add origin "$remote_dir"
+
+    setup_backfill_transcripts "push-session"
+
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh --push
+
+    if git -C "$remote_dir" rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "--push pushes after import"
+    else
+        fail "--push pushes after import" "branch not on remote"
+    fi
+
+    rm -rf "$remote_dir"
+}
+
+test_backfill_no_transcripts() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # Fake HOME with no transcripts for this repo
+    FAKE_CLAUDE_HOME=$(mktemp -d "${TMPDIR:-/tmp}/cst-home.XXXXXX")
+    mkdir -p "$FAKE_CLAUDE_HOME/.claude/projects"
+
+    local output
+    output=$(HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh 2>&1)
+
+    if [[ "$output" == *"No"*"transcripts"* ]]; then
+        pass "exits cleanly when no transcripts found"
+    else
+        fail "exits cleanly when no transcripts found" "output: $output"
+    fi
+}
+
+test_backfill_excludes_subagents() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    setup_backfill_transcripts "real-session"
+
+    # Add a subagent transcript in a subdirectory
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel)
+    local encoded
+    encoded=$(printf '%s' "$repo_root" | sed 's|/|-|g')
+    local subagent_dir="${FAKE_CLAUDE_HOME}/.claude/projects/${encoded}/some-uuid/subagents"
+    mkdir -p "$subagent_dir"
+    make_transcript "${subagent_dir}/subagent-session.jsonl" \
+        "user:Subagent prompt" \
+        "assistant:Subagent response"
+
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh
+
+    # real-session should be imported, subagent-session should not
+    if git show "claude-sessions:sessions/real-session.jsonl.gz" >/dev/null 2>&1 && \
+       ! git show "claude-sessions:sessions/subagent-session.jsonl.gz" >/dev/null 2>&1; then
+        pass "backfill excludes subagent transcripts"
+    else
+        fail "backfill excludes subagent transcripts" "subagent was imported or real session missing"
     fi
 }
 
@@ -1377,6 +1574,14 @@ section "plugin structure"
 test_plugin_json_valid
 test_hooks_json_valid
 test_scripts_executable
+
+section "backfill"
+test_backfill_imports_sessions
+test_backfill_skips_existing
+test_backfill_force_overwrites
+test_backfill_push
+test_backfill_no_transcripts
+test_backfill_excludes_subagents
 
 section "E2E (optional)"
 test_e2e_plugin_validate
