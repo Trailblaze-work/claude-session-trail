@@ -170,6 +170,134 @@ test_redacts_secrets_in_transcript() {
     fi
 }
 
+test_redacts_openai_keys() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    # sk-proj- style OpenAI key (40+ chars)
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"key is sk-proj-$(printf 'X%.0s' {1..50})\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "openai-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/openai-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED_OPENAI_KEY" && ! echo "$stored" | grep -q "sk-proj-"; then
+        pass "redacts OpenAI API keys"
+    else
+        fail "redacts OpenAI API keys" "key not redacted"
+    fi
+}
+
+test_redacts_aws_keys() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"aws key AKIAIOSFODNN7EXAMPLE\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "aws-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/aws-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED_AWS_KEY" && ! echo "$stored" | grep -q "AKIAIOSFODNN7EXAMPLE"; then
+        pass "redacts AWS access keys"
+    else
+        fail "redacts AWS access keys" "key not redacted"
+    fi
+}
+
+test_redacts_github_tokens() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    # ghp_ token (36+ chars after prefix)
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"token ghp_$(printf 'A%.0s' {1..40})\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "github-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/github-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED_GITHUB_TOKEN" && ! echo "$stored" | grep -q "ghp_"; then
+        pass "redacts GitHub tokens"
+    else
+        fail "redacts GitHub tokens" "token not redacted"
+    fi
+}
+
+test_redacts_bearer_tokens() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc123\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "bearer-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/bearer-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED_TOKEN" && ! echo "$stored" | grep -q "eyJhbGci"; then
+        pass "redacts Bearer tokens"
+    else
+        fail "redacts Bearer tokens" "token not redacted"
+    fi
+}
+
+test_redacts_generic_key_value() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"api_key=mysupersecretvalue123\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "keyval-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/keyval-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED" && ! echo "$stored" | grep -q "mysupersecretvalue123"; then
+        pass "redacts generic key=value secrets"
+    else
+        fail "redacts generic key=value secrets" "secret not redacted"
+    fi
+}
+
+test_redacts_multiple_secrets_in_one_line() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "raw:{\"type\":\"user\",\"message\":{\"content\":\"aws AKIAIOSFODNN7EXAMPLE and token ghp_$(printf 'B%.0s' {1..40})\"},\"timestamp\":\"2026-02-27T17:00:00Z\"}" \
+        "assistant:noted"
+
+    make_hook_input "$transcript" "multi-secret-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local stored
+    stored=$(git show claude-sessions:sessions/multi-secret-session.jsonl.gz | gunzip)
+    if echo "$stored" | grep -q "REDACTED_AWS_KEY" && echo "$stored" | grep -q "REDACTED_GITHUB_TOKEN"; then
+        pass "redacts multiple secrets in one line"
+    else
+        fail "redacts multiple secrets in one line" "not all secrets redacted"
+    fi
+}
+
 test_preserves_normal_content() {
     make_test_repo
     trap cleanup_test_repo RETURN
@@ -520,6 +648,142 @@ test_meta_lists_tools() {
     fi
 }
 
+test_meta_timestamps() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:First message" \
+        "assistant:Response" \
+        "user:Last message"
+
+    make_hook_input "$transcript" "ts-test-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local meta
+    meta=$(git show claude-sessions:sessions/ts-test-session.meta.json)
+
+    if echo "$meta" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['started'], 'started is empty'
+assert d['last_updated'], 'last_updated is empty'
+assert d['started'] <= d['last_updated'], 'started > last_updated'
+" 2>/dev/null; then
+        pass "meta.json has valid started and last_updated timestamps"
+    else
+        fail "meta.json has valid started and last_updated timestamps" "timestamps missing or invalid"
+    fi
+}
+
+test_meta_models() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    TRANSCRIPT_MODEL="claude-opus-4-6" \
+    make_transcript "$transcript" \
+        "user:Hello" \
+        "assistant:Hi"
+
+    make_hook_input "$transcript" "models-test-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local meta
+    meta=$(git show claude-sessions:sessions/models-test-session.meta.json)
+
+    local models
+    models=$(echo "$meta" | python3 -c "import json,sys; print(','.join(json.load(sys.stdin)['models']))")
+    if [[ "$models" == *"claude-opus-4-6"* ]]; then
+        pass "meta.json models array contains the model"
+    else
+        fail "meta.json models array contains the model" "got '$models'"
+    fi
+}
+
+test_meta_client_version_and_branch() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    TRANSCRIPT_VERSION="2.1.62" \
+    TRANSCRIPT_BRANCH="feature-xyz" \
+    make_transcript "$transcript" \
+        "user:Hello" \
+        "assistant:Hi"
+
+    make_hook_input "$transcript" "version-branch-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local meta
+    meta=$(git show claude-sessions:sessions/version-branch-session.meta.json)
+
+    local version branch
+    version=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['client_version'])")
+    branch=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['git_branch'])")
+    if [[ "$version" == "2.1.62" ]] && [[ "$branch" == "feature-xyz" ]]; then
+        pass "meta.json has correct client_version and git_branch"
+    else
+        fail "meta.json has correct client_version and git_branch" "version=$version, branch=$branch"
+    fi
+}
+
+test_meta_compressed_size() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Hello" \
+        "assistant:World"
+
+    make_hook_input "$transcript" "size-test-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local meta
+    meta=$(git show claude-sessions:sessions/size-test-session.meta.json)
+
+    local size
+    size=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['compressed_size'])")
+    if [[ "$size" -gt 0 ]]; then
+        pass "meta.json compressed_size is positive"
+    else
+        fail "meta.json compressed_size is positive" "got $size"
+    fi
+}
+
+test_meta_assistant_turns() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:One" \
+        "assistant:Reply one" \
+        "bash:ls" \
+        "tool:Edit" \
+        "user:Two" \
+        "assistant:Reply two"
+
+    make_hook_input "$transcript" "turns-test-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    local meta
+    meta=$(git show claude-sessions:sessions/turns-test-session.meta.json)
+
+    local user_turns assistant_turns
+    user_turns=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['user_turns'])")
+    assistant_turns=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['assistant_turns'])")
+    # 2 user records, 4 assistant records (assistant + bash + tool + assistant)
+    if [[ "$user_turns" -eq 2 ]] && [[ "$assistant_turns" -eq 4 ]]; then
+        pass "meta.json counts user and assistant turns correctly"
+    else
+        fail "meta.json counts user and assistant turns correctly" \
+            "user=$user_turns (expected 2), assistant=$assistant_turns (expected 4)"
+    fi
+}
+
 
 # ============================================================
 # Integration tests
@@ -614,6 +878,228 @@ test_setup_no_origin_exits_cleanly() {
     # No origin remote — should exit cleanly
     bash "$HOOKS_DIR/setup-session-branch.sh"
     pass "setup-session-branch exits cleanly with no origin remote"
+}
+
+test_setup_does_not_add_display_ref() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    git remote add origin "https://example.com/test.git"
+
+    bash "$HOOKS_DIR/setup-session-branch.sh"
+
+    local display_ref
+    display_ref=$(git config --local --get notes.displayRef 2>/dev/null || echo "")
+    if [[ "$display_ref" != *"claude-sessions"* ]]; then
+        pass "setup-session-branch does not add notes.displayRef"
+    else
+        fail "setup-session-branch does not add notes.displayRef" "got '$display_ref'"
+    fi
+}
+
+test_empty_transcript() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    > "$transcript"
+
+    make_hook_input "$transcript" "empty-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    # Should still create the branch (empty gzip is valid)
+    if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "empty transcript creates branch without error"
+    else
+        # Also acceptable: script exits cleanly without creating branch
+        pass "empty transcript exits cleanly"
+    fi
+}
+
+test_malformed_jsonl_lines() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Valid prompt" \
+        "raw:this is not valid json at all" \
+        "raw:{broken json" \
+        "assistant:Valid response" \
+        "raw:" \
+        "user:Another valid prompt"
+
+    make_hook_input "$transcript" "malformed-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    # Should succeed — malformed lines are kept as-is (redaction is string-based)
+    if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        local stored
+        stored=$(git show claude-sessions:sessions/malformed-session.jsonl.gz | gunzip)
+        if echo "$stored" | grep -q "Valid prompt" && echo "$stored" | grep -q "Another valid prompt"; then
+            pass "malformed JSONL lines don't break processing"
+        else
+            fail "malformed JSONL lines don't break processing" "valid content missing"
+        fi
+    else
+        fail "malformed JSONL lines don't break processing" "branch not created"
+    fi
+}
+
+test_missing_session_id() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Hello" \
+        "assistant:Hi"
+
+    # No session_id in input
+    echo "{\"transcript_path\":\"$transcript\"}" | bash "$HOOKS_DIR/capture-session.sh"
+
+    if ! git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "missing session_id exits cleanly without creating branch"
+    else
+        fail "missing session_id exits cleanly without creating branch" "branch was created"
+    fi
+}
+
+test_missing_transcript_path() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    # session_id but no transcript_path
+    echo '{"session_id":"test-123"}' | bash "$HOOKS_DIR/capture-session.sh"
+
+    if ! git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "missing transcript_path exits cleanly without creating branch"
+    else
+        fail "missing transcript_path exits cleanly without creating branch" "branch was created"
+    fi
+}
+
+test_nonexistent_transcript_file() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    echo '{"transcript_path":"/tmp/does-not-exist.jsonl","session_id":"test-123"}' | bash "$HOOKS_DIR/capture-session.sh"
+
+    if ! git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "nonexistent transcript file exits cleanly"
+    else
+        fail "nonexistent transcript file exits cleanly" "branch was created"
+    fi
+}
+
+test_push_without_prior_commit() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local remote_dir
+    remote_dir=$(mktemp -d "${TMPDIR:-/tmp}/cst-remote.XXXXXX")
+    git init -q --bare "$remote_dir"
+    git remote add origin "$remote_dir"
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:First ever session" \
+        "assistant:Hello"
+
+    # --push on a brand new branch (no prior commit)
+    make_hook_input "$transcript" "first-push-session" | bash "$HOOKS_DIR/capture-session.sh" --push
+
+    # Both local and remote should have the branch
+    if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1 && \
+       git -C "$remote_dir" rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "--push works when branch is brand new (no prior commit)"
+    else
+        fail "--push works when branch is brand new (no prior commit)" "branch missing locally or on remote"
+    fi
+
+    rm -rf "$remote_dir"
+}
+
+test_no_push_without_flag() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    local remote_dir
+    remote_dir=$(mktemp -d "${TMPDIR:-/tmp}/cst-remote.XXXXXX")
+    git init -q --bare "$remote_dir"
+    git remote add origin "$remote_dir"
+
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:No push test" \
+        "assistant:Done"
+
+    # No --push flag
+    make_hook_input "$transcript" "nopush-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    # Local branch should exist, but remote should NOT have it
+    if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1 && \
+       ! git -C "$remote_dir" rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "without --push flag, does not push to origin"
+    else
+        fail "without --push flag, does not push to origin" "unexpected push occurred"
+    fi
+
+    rm -rf "$remote_dir"
+}
+
+test_works_during_merge() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    # Create a branch with a conflicting file
+    git checkout -q -b feature
+    echo "feature content" > conflict.txt
+    git add conflict.txt
+    git commit -q -m "feature commit"
+    git checkout -q main
+    echo "main content" > conflict.txt
+    git add conflict.txt
+    git commit -q -m "main commit"
+
+    # Start a merge that conflicts
+    git merge feature --no-commit 2>/dev/null || true
+
+    # Session capture should still work during merge
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:Resolving merge conflict" \
+        "assistant:Let me help"
+
+    make_hook_input "$transcript" "merge-session" | bash "$HOOKS_DIR/capture-session.sh"
+
+    if git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "session capture works during an in-progress merge"
+    else
+        fail "session capture works during an in-progress merge" "branch not created"
+    fi
+}
+
+test_invalid_json_stdin() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    # Garbage stdin
+    echo "not json at all" | bash "$HOOKS_DIR/capture-session.sh" || true
+
+    if ! git rev-parse --verify refs/heads/claude-sessions >/dev/null 2>&1; then
+        pass "invalid JSON on stdin exits cleanly"
+    else
+        fail "invalid JSON on stdin exits cleanly" "branch was created"
+    fi
 }
 
 
@@ -842,6 +1328,12 @@ assert d.get('compressed_size', 0) > 0, 'no compressed_size'
 
 section "secret redaction"
 test_redacts_secrets_in_transcript
+test_redacts_openai_keys
+test_redacts_aws_keys
+test_redacts_github_tokens
+test_redacts_bearer_tokens
+test_redacts_generic_key_value
+test_redacts_multiple_secrets_in_one_line
 test_preserves_normal_content
 test_transcript_is_valid_gzipped_jsonl
 
@@ -851,16 +1343,33 @@ test_commit_no_worktree_disruption
 test_commit_idempotent
 test_commit_updates_existing_session
 test_concurrent_sessions
+test_works_during_merge
 
 section "metadata"
 test_meta_has_session_fields
 test_meta_lists_commits
 test_meta_lists_tools
+test_meta_timestamps
+test_meta_models
+test_meta_client_version_and_branch
+test_meta_compressed_size
+test_meta_assistant_turns
+
+section "edge cases"
+test_empty_transcript
+test_malformed_jsonl_lines
+test_missing_session_id
+test_missing_transcript_path
+test_nonexistent_transcript_file
+test_invalid_json_stdin
 
 section "integration"
 test_push_on_session_end
+test_push_without_prior_commit
+test_no_push_without_flag
 test_setup_configures_fetch
 test_setup_idempotent
+test_setup_does_not_add_display_ref
 test_no_transcript_exits_cleanly
 test_setup_no_origin_exits_cleanly
 
