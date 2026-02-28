@@ -10,16 +10,16 @@ When the session ends, it pushes the branch to origin so team members can access
 
 ## Install
 
+First, add the Trailblaze marketplace (one-time):
+
 ```bash
-claude plugin install github:Trailblaze-work/claude-session-trail
+claude plugin marketplace add Trailblaze-work/claude-code-marketplace
 ```
 
-Or clone manually and enable:
+Then install:
 
 ```bash
-git clone https://github.com/Trailblaze-work/claude-session-trail.git
-cd claude-session-trail
-claude plugin enable .
+claude plugin install session-trail@trailblaze
 ```
 
 ## What gets captured
