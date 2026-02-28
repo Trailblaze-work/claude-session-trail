@@ -29,7 +29,7 @@ GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
 # Early exit if transcript hasn't changed since last commit
 MTIME_FILE="$GIT_DIR/session-trail-last-${SESSION_ID}"
-CURRENT_MTIME=$(stat -f '%m' "$TRANSCRIPT_PATH" 2>/dev/null || stat -c '%Y' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
+CURRENT_MTIME=$(stat -c '%Y' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%m' "$TRANSCRIPT_PATH" 2>/dev/null || echo "0")
 if [[ -f "$MTIME_FILE" ]]; then
     LAST_MTIME=$(cat "$MTIME_FILE")
     if [[ "$CURRENT_MTIME" == "$LAST_MTIME" ]]; then
