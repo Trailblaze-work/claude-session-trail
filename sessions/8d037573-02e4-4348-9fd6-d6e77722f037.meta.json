@@ -1,0 +1,22 @@
+{
+  "session_id": "8d037573-02e4-4348-9fd6-d6e77722f037",
+  "slug": "effervescent-sleeping-beaver",
+  "started": "2026-03-01T20:46:39.467Z",
+  "last_updated": "2026-03-01T20:50:33.112Z",
+  "models": [
+    "claude-opus-4-6"
+  ],
+  "client_version": "2.1.63",
+  "git_branch": "main",
+  "user_turns": 8,
+  "assistant_turns": 17,
+  "commits": [],
+  "tools_used": {
+    "Agent": 1,
+    "AskUserQuestion": 1,
+    "Read": 4,
+    "Write": 1,
+    "ExitPlanMode": 1
+  },
+  "compressed_size": 56086
+}
