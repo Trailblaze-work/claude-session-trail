@@ -13,10 +13,12 @@ set -euo pipefail
 
 PUSH=false
 FORCE=false
+QUIET=false
 for arg in "$@"; do
     case "$arg" in
         --push)  PUSH=true ;;
         --force) FORCE=true ;;
+        --quiet) QUIET=true ;;
     esac
 done
 
@@ -32,7 +34,7 @@ CLAUDE_PROJECTS="${HOME}/.claude/projects"
 TRANSCRIPT_DIR="${CLAUDE_PROJECTS}/${ENCODED_PATH}"
 
 if [[ ! -d "$TRANSCRIPT_DIR" ]]; then
-    echo "No local transcripts found at $TRANSCRIPT_DIR"
+    [[ "$QUIET" == "false" ]] && echo "No local transcripts found at $TRANSCRIPT_DIR"
     exit 0
 fi
 
@@ -43,14 +45,14 @@ while IFS= read -r -d '' f; do
 done < <(find "$TRANSCRIPT_DIR" -maxdepth 1 -name '*.jsonl' -print0 2>/dev/null)
 
 if [[ ${#TRANSCRIPTS[@]} -eq 0 ]]; then
-    echo "No transcripts found in $TRANSCRIPT_DIR"
+    [[ "$QUIET" == "false" ]] && echo "No transcripts found in $TRANSCRIPT_DIR"
     exit 0
 fi
 
-echo "Found ${#TRANSCRIPTS[@]} transcript(s) in $TRANSCRIPT_DIR"
+[[ "$QUIET" == "false" ]] && echo "Found ${#TRANSCRIPTS[@]} transcript(s) in $TRANSCRIPT_DIR"
 
 # Delegate to Python for dedup + import
-DO_PUSH="$PUSH" DO_FORCE="$FORCE" TRANSCRIPTS_JSON=$(printf '%s\n' "${TRANSCRIPTS[@]}" | python3 -c "import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))") \
+DO_PUSH="$PUSH" DO_FORCE="$FORCE" DO_QUIET="$QUIET" TRANSCRIPTS_JSON=$(printf '%s\n' "${TRANSCRIPTS[@]}" | python3 -c "import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))") \
 python3 <<'PYTHON'
 import gzip
 import json
@@ -319,6 +321,7 @@ def main():
     transcripts = json.loads(os.environ.get("TRANSCRIPTS_JSON", "[]"))
     do_push = os.environ.get("DO_PUSH", "false") == "true"
     do_force = os.environ.get("DO_FORCE", "false") == "true"
+    do_quiet = os.environ.get("DO_QUIET", "false") == "true"
 
     if not transcripts:
         return
@@ -354,14 +357,16 @@ def main():
             failed += 1
             print(f"  Error processing {session_id}: {e}", file=sys.stderr)
 
-    print(f"Imported {imported} session(s), skipped {skipped} already present", end="")
-    if failed:
-        print(f", {failed} failed", end="")
-    print()
+    if not do_quiet or failed:
+        print(f"Imported {imported} session(s), skipped {skipped} already present", end="")
+        if failed:
+            print(f", {failed} failed", end="")
+        print()
 
     if do_push and imported > 0:
         push_sessions_branch()
-        print("Pushed claude-sessions branch to origin")
+        if not do_quiet:
+            print("Pushed claude-sessions branch to origin")
 
 
 if __name__ == "__main__":

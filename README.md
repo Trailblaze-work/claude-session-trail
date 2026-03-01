@@ -94,11 +94,15 @@ git ls-tree claude-sessions sessions/
 |-----------|--------|
 | `Stop` (every Claude turn) | Redact secrets → gzip → commit to `claude-sessions` branch |
 | `SessionEnd` | Same commit + push to origin |
-| `SessionStart` | Configure fetch refspec for `claude-sessions` |
+| `SessionStart` | Configure fetch refspec + auto-recover orphaned sessions |
 
 Commits use git plumbing (`hash-object`, `read-tree`, `write-tree`, `commit-tree`, `update-ref`) with a temporary index file — no checkout, no stashing, no worktree disruption.
 
 Git's packfile compression handles deduplication automatically — each commit overwrites the same session file, and git stores only the delta internally.
+
+## Recovering orphaned sessions
+
+If Claude Code is killed uncleanly (e.g., closing a terminal or tmux workspace), the `SessionEnd` hook never fires and the final transcript snapshot is never committed. On the next session start, session-trail automatically runs backfill to recover any orphaned transcripts from `~/.claude/projects/`. This happens silently — no output unless something goes wrong.
 
 ## Backfill existing sessions
 

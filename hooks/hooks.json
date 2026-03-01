@@ -32,6 +32,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/backfill-sessions.sh\" --quiet",
+            "timeout": 30
+          }
+        ]
       }
     ]
   }

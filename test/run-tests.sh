@@ -1347,6 +1347,75 @@ test_backfill_excludes_subagents() {
 
 
 # ============================================================
+# Auto-backfill on start tests
+# ============================================================
+
+test_backfill_quiet_suppresses_output() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    setup_backfill_transcripts "quiet-session"
+
+    local output
+    output=$(HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh --quiet 2>&1)
+
+    if [[ -z "$output" ]]; then
+        pass "--quiet suppresses output on successful backfill"
+    else
+        fail "--quiet suppresses output on successful backfill" "got output: $output"
+    fi
+}
+
+test_backfill_quiet_shows_errors() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # No transcripts for this repo — quiet should suppress "No transcripts" message
+    FAKE_CLAUDE_HOME=$(mktemp -d "${TMPDIR:-/tmp}/cst-home.XXXXXX")
+    mkdir -p "$FAKE_CLAUDE_HOME/.claude/projects"
+
+    local output
+    output=$(HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh --quiet 2>&1)
+
+    if [[ -z "$output" ]]; then
+        pass "--quiet suppresses 'no transcripts' message"
+    else
+        fail "--quiet suppresses 'no transcripts' message" "got output: $output"
+    fi
+}
+
+test_auto_backfill_recovers_orphaned_session() {
+    make_test_repo
+    trap 'cleanup_backfill_home; cleanup_test_repo' RETURN
+    install_plugin
+
+    # Simulate: session was captured once (so branch exists), then a new session
+    # was killed before SessionEnd — its transcript exists on disk but not on the branch
+    local transcript="$TEST_DIR/transcript.jsonl"
+    make_transcript "$transcript" \
+        "user:First session" \
+        "assistant:Done"
+    make_hook_input "$transcript" "committed-session" | bash hooks/capture-session.sh
+
+    # Now create an orphaned transcript (simulates killed session)
+    setup_backfill_transcripts "orphaned-session"
+
+    # Run backfill with --quiet as the SessionStart hook would
+    HOME="$FAKE_CLAUDE_HOME" bash hooks/backfill-sessions.sh --quiet
+
+    # Verify the orphaned session was recovered
+    if git show "claude-sessions:sessions/orphaned-session.jsonl.gz" >/dev/null 2>&1 && \
+       git show "claude-sessions:sessions/orphaned-session.meta.json" >/dev/null 2>&1; then
+        pass "auto-backfill recovers orphaned session on start"
+    else
+        fail "auto-backfill recovers orphaned session on start" "orphaned session not found on branch"
+    fi
+}
+
+
+# ============================================================
 # E2E tests (optional, require ANTHROPIC_API_KEY + claude CLI)
 # ============================================================
 
@@ -1582,6 +1651,11 @@ test_backfill_force_overwrites
 test_backfill_push
 test_backfill_no_transcripts
 test_backfill_excludes_subagents
+
+section "auto-backfill on start"
+test_backfill_quiet_suppresses_output
+test_backfill_quiet_shows_errors
+test_auto_backfill_recovers_orphaned_session
 
 section "E2E (optional)"
 test_e2e_plugin_validate
