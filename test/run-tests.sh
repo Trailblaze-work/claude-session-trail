@@ -836,6 +836,27 @@ test_setup_skips_refspec_without_remote_branch() {
     fi
 }
 
+test_setup_removes_stale_refspec() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    git remote add origin "https://example.com/test.git"
+
+    # Simulate a stale refspec left by the old plugin version
+    git config --add --local remote.origin.fetch "+refs/heads/claude-sessions:refs/heads/claude-sessions"
+
+    bash "$HOOKS_DIR/setup-session-branch.sh"
+
+    local fetch
+    fetch=$(git config --local --get-all remote.origin.fetch 2>/dev/null | grep "claude-sessions" || echo "")
+    if [[ -z "$fetch" ]]; then
+        pass "setup-session-branch removes stale refspec when remote branch absent"
+    else
+        fail "setup-session-branch removes stale refspec when remote branch absent" "got '$fetch'"
+    fi
+}
+
 test_setup_configures_fetch() {
     make_test_repo
     trap cleanup_test_repo RETURN
@@ -1672,6 +1693,7 @@ test_push_on_session_end
 test_push_without_prior_commit
 test_no_push_without_flag
 test_setup_skips_refspec_without_remote_branch
+test_setup_removes_stale_refspec
 test_setup_configures_fetch
 test_setup_idempotent
 test_setup_does_not_add_display_ref

@@ -10,10 +10,18 @@ set -euo pipefail
 
 if git remote get-url origin >/dev/null 2>&1; then
     FETCH_REF="+refs/heads/claude-sessions:refs/heads/claude-sessions"
-    if ! git config --local --get-all remote.origin.fetch 2>/dev/null | grep -qF "$FETCH_REF"; then
-        # Only add if the remote-tracking ref exists (implies a prior push or fetch succeeded)
-        if git rev-parse --verify refs/remotes/origin/claude-sessions >/dev/null 2>&1; then
+    HAS_REFSPEC=false
+    git config --local --get-all remote.origin.fetch 2>/dev/null | grep -qF "$FETCH_REF" && HAS_REFSPEC=true
+
+    if git rev-parse --verify refs/remotes/origin/claude-sessions >/dev/null 2>&1; then
+        # Remote-tracking ref exists — safe to add the refspec
+        if [[ "$HAS_REFSPEC" == false ]]; then
             git config --add --local remote.origin.fetch "$FETCH_REF"
+        fi
+    else
+        # Remote-tracking ref absent — remove stale refspec to avoid breaking git pull
+        if [[ "$HAS_REFSPEC" == true ]]; then
+            git config --local --fixed-value --unset remote.origin.fetch "$FETCH_REF" 2>/dev/null || true
         fi
     fi
 fi
