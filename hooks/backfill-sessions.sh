@@ -284,6 +284,15 @@ def commit_to_sessions_branch(session_id, gzipped_bytes, meta_json):
     return False
 
 
+def ensure_fetch_refspec():
+    """Add fetch refspec for claude-sessions if not already configured."""
+    fetch_ref = "+refs/heads/claude-sessions:refs/heads/claude-sessions"
+    rc, out, _ = git("config", "--local", "--get-all", "remote.origin.fetch")
+    if rc == 0 and fetch_ref.encode() in out:
+        return
+    git("config", "--add", "--local", "remote.origin.fetch", fetch_ref)
+
+
 def push_sessions_branch():
     rc, _, _ = git("remote", "get-url", "origin")
     if rc != 0:
@@ -291,7 +300,9 @@ def push_sessions_branch():
     rc, _, stderr = git("push", "origin", "refs/heads/claude-sessions")
     if rc != 0 and b"non-fast-forward" in stderr:
         git("fetch", "origin", "refs/heads/claude-sessions:refs/heads/claude-sessions")
-        git("push", "origin", "refs/heads/claude-sessions")
+        rc, _, _ = git("push", "origin", "refs/heads/claude-sessions")
+    if rc == 0:
+        ensure_fetch_refspec()
 
 
 # ---------------------------------------------------------------------------

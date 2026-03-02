@@ -818,7 +818,7 @@ test_push_on_session_end() {
     rm -rf "$remote_dir"
 }
 
-test_setup_configures_fetch() {
+test_setup_skips_refspec_without_remote_branch() {
     make_test_repo
     trap cleanup_test_repo RETURN
     install_plugin
@@ -829,11 +829,40 @@ test_setup_configures_fetch() {
 
     local fetch
     fetch=$(git config --local --get-all remote.origin.fetch 2>/dev/null | grep "claude-sessions" || echo "")
-    if [[ "$fetch" == "+refs/heads/claude-sessions:refs/heads/claude-sessions" ]]; then
-        pass "setup-session-branch adds fetch refspec for claude-sessions"
+    if [[ -z "$fetch" ]]; then
+        pass "setup-session-branch skips refspec when remote branch absent"
     else
-        fail "setup-session-branch adds fetch refspec for claude-sessions" "got '$fetch'"
+        fail "setup-session-branch skips refspec when remote branch absent" "got '$fetch'"
     fi
+}
+
+test_setup_configures_fetch() {
+    make_test_repo
+    trap cleanup_test_repo RETURN
+    install_plugin
+
+    # Set up a real remote so push creates remote-tracking ref
+    local remote_dir
+    remote_dir=$(mktemp -d)
+    git init --bare "$remote_dir" >/dev/null 2>&1
+    git remote add origin "$remote_dir"
+
+    # Create a local claude-sessions branch and push it to create remote-tracking ref
+    git commit --allow-empty -m "init" >/dev/null 2>&1
+    git branch claude-sessions >/dev/null 2>&1
+    git push origin claude-sessions >/dev/null 2>&1
+
+    bash "$HOOKS_DIR/setup-session-branch.sh"
+
+    local fetch
+    fetch=$(git config --local --get-all remote.origin.fetch 2>/dev/null | grep "claude-sessions" || echo "")
+    if [[ "$fetch" == "+refs/heads/claude-sessions:refs/heads/claude-sessions" ]]; then
+        pass "setup-session-branch adds fetch refspec when remote branch exists"
+    else
+        fail "setup-session-branch adds fetch refspec when remote branch exists" "got '$fetch'"
+    fi
+
+    rm -rf "$remote_dir"
 }
 
 test_setup_idempotent() {
@@ -841,7 +870,14 @@ test_setup_idempotent() {
     trap cleanup_test_repo RETURN
     install_plugin
 
-    git remote add origin "https://example.com/test.git"
+    # Set up real remote with claude-sessions branch
+    local remote_dir
+    remote_dir=$(mktemp -d)
+    git init --bare "$remote_dir" >/dev/null 2>&1
+    git remote add origin "$remote_dir"
+    git commit --allow-empty -m "init" >/dev/null 2>&1
+    git branch claude-sessions >/dev/null 2>&1
+    git push origin claude-sessions >/dev/null 2>&1
 
     bash "$HOOKS_DIR/setup-session-branch.sh"
     bash "$HOOKS_DIR/setup-session-branch.sh"
@@ -854,6 +890,8 @@ test_setup_idempotent() {
     else
         fail "setup-session-branch is idempotent" "got $count fetch refspecs"
     fi
+
+    rm -rf "$remote_dir"
 }
 
 test_no_transcript_exits_cleanly() {
@@ -1633,6 +1671,7 @@ section "integration"
 test_push_on_session_end
 test_push_without_prior_commit
 test_no_push_without_flag
+test_setup_skips_refspec_without_remote_branch
 test_setup_configures_fetch
 test_setup_idempotent
 test_setup_does_not_add_display_ref
