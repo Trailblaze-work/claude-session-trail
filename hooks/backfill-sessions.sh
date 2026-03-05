@@ -22,11 +22,11 @@ for arg in "$@"; do
     esac
 done
 
-# Resolve git dir — exit if not in a git repo
-GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || { echo "Not a git repo." >&2; exit 1; }
+# Resolve git dir — exit silently if not in a git repo
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
 # Determine repo root and encode it the same way Claude Code does
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Cannot determine repo root." >&2; exit 1; }
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 ENCODED_PATH=$(printf '%s' "$REPO_ROOT" | sed 's|/|-|g')
 
 # Find the local transcript directory
