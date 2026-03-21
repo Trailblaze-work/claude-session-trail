@@ -1505,6 +1505,7 @@ claude_session() {
     for attempt in 1 2; do
         CLAUDE_OUTPUT=$(claude -p \
             "Say hello and nothing else." \
+            --model haiku \
             --permission-mode acceptEdits \
             --allowedTools 'Bash(echo *)' \
             "$@" \
