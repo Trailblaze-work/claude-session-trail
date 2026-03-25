@@ -1,0 +1,16 @@
+{
+  "session_id": "764a37a3-7a13-4492-bba3-c2ab0c0872ce",
+  "slug": "",
+  "started": "2026-03-25T12:41:52.579Z",
+  "last_updated": "2026-03-25T12:41:58.342Z",
+  "models": [
+    "claude-sonnet-4-6"
+  ],
+  "client_version": "2.1.83",
+  "git_branch": "main",
+  "user_turns": 1,
+  "assistant_turns": 2,
+  "commits": [],
+  "tools_used": {},
+  "compressed_size": 1315
+}
