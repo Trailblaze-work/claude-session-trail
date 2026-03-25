@@ -1,0 +1,14 @@
+{
+  "session_id": "6b385fd0-5083-4b59-8fc0-a3fbef474fc8",
+  "slug": "",
+  "started": "2026-03-25T12:39:31.388Z",
+  "last_updated": "2026-03-25T12:39:31.391Z",
+  "models": [],
+  "client_version": "2.1.83",
+  "git_branch": "main",
+  "user_turns": 1,
+  "assistant_turns": 0,
+  "commits": [],
+  "tools_used": {},
+  "compressed_size": 720
+}
