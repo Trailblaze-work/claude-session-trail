@@ -1,0 +1,18 @@
+{
+  "session_id": "f351f0a8-1ca8-4f28-bb8e-5626ebea273e",
+  "slug": "",
+  "started": "2026-03-25T12:44:28.033Z",
+  "last_updated": "2026-03-25T12:44:33.587Z",
+  "models": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "client_version": "2.1.83",
+  "git_branch": "main",
+  "user_turns": 3,
+  "assistant_turns": 4,
+  "commits": [],
+  "tools_used": {
+    "Skill": 1
+  },
+  "compressed_size": 4460
+}
