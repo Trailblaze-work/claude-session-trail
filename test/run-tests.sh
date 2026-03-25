@@ -1500,18 +1500,23 @@ require_e2e() {
 # Usage: claude_session [extra-flags...]
 # Returns 0 on success. Sets CLAUDE_OUTPUT.
 # Retries once on failure to handle flaky LLM responses.
+# Uses --output-format json and checks is_error to determine success,
+# because claude -p text output can be empty when models use extended
+# thinking (Claude Code >=2.1.83 regression).
 claude_session() {
     local attempt
     for attempt in 1 2; do
         CLAUDE_OUTPUT=$(claude -p \
             "Say hello and nothing else." \
             --model haiku \
+            --output-format json \
             --permission-mode acceptEdits \
             --allowedTools 'Bash(echo *)' \
             "$@" \
-            2>&1) || true
+            2>/dev/null) || true
 
-        if [[ -n "$CLAUDE_OUTPUT" ]]; then
+        if [[ -n "$CLAUDE_OUTPUT" ]] \
+            && echo "$CLAUDE_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if not d.get('is_error') else 1)" 2>/dev/null; then
             return 0
         fi
         [[ $attempt -eq 1 ]] && echo "  (retry claude_session after attempt $attempt)" >&2
