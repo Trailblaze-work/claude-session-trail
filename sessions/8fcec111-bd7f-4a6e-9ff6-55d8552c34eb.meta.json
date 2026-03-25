@@ -1,0 +1,16 @@
+{
+  "session_id": "8fcec111-bd7f-4a6e-9ff6-55d8552c34eb",
+  "slug": "",
+  "started": "2026-03-25T12:40:13.883Z",
+  "last_updated": "2026-03-25T12:40:18.548Z",
+  "models": [
+    "claude-opus-4-6"
+  ],
+  "client_version": "2.1.83",
+  "git_branch": "main",
+  "user_turns": 1,
+  "assistant_turns": 2,
+  "commits": [],
+  "tools_used": {},
+  "compressed_size": 1441
+}
