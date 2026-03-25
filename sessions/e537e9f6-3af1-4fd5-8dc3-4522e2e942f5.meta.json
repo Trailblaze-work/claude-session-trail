@@ -1,0 +1,20 @@
+{
+  "session_id": "e537e9f6-3af1-4fd5-8dc3-4522e2e942f5",
+  "slug": "abstract-riding-thimble",
+  "started": "2026-03-25T12:36:50.136Z",
+  "last_updated": "2026-03-25T12:38:47.502Z",
+  "models": [
+    "claude-opus-4-6"
+  ],
+  "client_version": "2.1.83",
+  "git_branch": "main",
+  "user_turns": 7,
+  "assistant_turns": 12,
+  "commits": [],
+  "tools_used": {
+    "Bash": 4,
+    "Grep": 2,
+    "Read": 1
+  },
+  "compressed_size": 13061
+}
